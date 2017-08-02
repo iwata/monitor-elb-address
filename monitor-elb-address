@@ -150,6 +150,7 @@ MAIN: {
         for my $dnsname (sort keys %prev_ip) {
             my @hosts = @{ $dnsname{$dnsname} };
             my $prev_str = stringify_ip(+( $dnsname => $prev_ip{$dnsname}));
+            #my $prev_str = stringify_ip(+( $dnsname => ['192.168.1.1']));
             my $cur_str  = stringify_ip(+( $dnsname => $cur_ip{$dnsname} ));
             debugf("%s: cur_ip=%s", $dnsname, $cur_str);
             my $diff = diff \$prev_str, \$cur_str, { STYLE => "Unified", CONTEXT => 10 };
@@ -182,12 +183,16 @@ sub stringify_hosts {
         my %buf = %{ $args{$dnsname} };
         my @ip = @{ $buf{ip} };
         my @hosts = @{ $buf{hosts} };
-        $str .= "### $dnsname ###\n";
+        $str .=  "### $dnsname ###\n";
+        my @each_ip;
         for my $ip (sort @ip) {
+          my @buf;
           for my $host (sort @hosts) {
-            $str .= "$ip   $host\n";
+            push(@buf,  "$ip   $host");
           }
+          push(@each_ip, join("\n", @buf));
         }
+        $str .= join("\n# or\n", @each_ip);
     }
 
     return $str;
@@ -266,7 +271,7 @@ sub notify {
     if (($conf = config->{notify}{slack})
             && $conf->{webhook_url}
         ) {
-        my $comment = 'IP Address of ELB has changed';
+        my $comment = '@here IP Address of ELB has changed';
         my %additional_config = ();
         for my $key (qw/username channel/) {
             if ($conf->{$key}) {
@@ -276,6 +281,7 @@ sub notify {
         my %payload = (
             icon_emoji => ":elb:",
             text => $comment,
+            link_names => 1,
             attachments => [
                 {
                     "title" => "New hosts about $dnsname",
