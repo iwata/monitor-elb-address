@@ -23,6 +23,18 @@ BEGIN {
     }
 }
 
+local $SIG{TERM} = $SIG{INT} = sub {
+  my @dnsname = keys %{ config()->{dnsname} };
+  for my $dnsname (@dnsname) {
+    my $lock_file = lock_file($dnsname);
+    if (-e $lock_file) {
+      debugf("remove lock file: %s", $lock_file);
+      unlink $lock_file;
+    }
+  }
+  exit 0;
+};
+
 use Data::Validator;
 use Log::Minimal;
 use Carp;
@@ -104,13 +116,13 @@ MAIN: {
 
     if ($Debug >= 2) {
         # for debugging
-        %prev_ip = map { $_ => ["192.0.2.1"] } @{ config->{dnsname} };
+        %prev_ip = map { $_ => ["192.0.2.1"] } keys %{ config->{dnsname} };
     }
 
     while (1) {
-        my @dnsname = @{ config->{dnsname} };
+        my %dnsname = %{ config->{dnsname} };
 
-        for my $dnsname (@dnsname) {
+        for my $dnsname (keys %dnsname) {
             debugf("DNSName: %s", $dnsname);
 
             if (my $answer = $resolver->query($dnsname, 'A')) {
@@ -136,14 +148,17 @@ MAIN: {
         }
 
         for my $dnsname (sort keys %prev_ip) {
+            my @hosts = @{ $dnsname{$dnsname} };
             my $prev_str = stringify_ip(+( $dnsname => $prev_ip{$dnsname}));
-            my $cur_str  = stringify_ip(+( $dnsname => $cur_ip{$dnsname}));
+            my $cur_str  = stringify_ip(+( $dnsname => $cur_ip{$dnsname} ));
             debugf("%s: cur_ip=%s", $dnsname, $cur_str);
             my $diff = diff \$prev_str, \$cur_str, { STYLE => "Unified", CONTEXT => 10 };
             if ($diff) {
                 infof("changed   [%s]", $dnsname);
                 print $diff;
-                notify($diff, $dnsname);
+                notify(stringify_hosts(+(
+                  $dnsname => {ip => $cur_ip{$dnsname}, hosts => \@hosts}
+                )), $dnsname);
             } else {
                 infof("no change [%s]", $dnsname);
             }
@@ -156,6 +171,26 @@ MAIN: {
     }
 
     exit 0;
+}
+
+sub stringify_hosts {
+    return "" unless @_;
+    my %args = @_;
+    my $str;
+
+    for my $dnsname (sort keys %args) {
+        my %buf = %{ $args{$dnsname} };
+        my @ip = @{ $buf{ip} };
+        my @hosts = @{ $buf{hosts} };
+        $str .= "### $dnsname ###\n";
+        for my $ip (sort @ip) {
+          for my $host (sort @hosts) {
+            $str .= "$ip   $host\n";
+          }
+        }
+    }
+
+    return $str;
 }
 
 sub stringify_ip {
@@ -173,13 +208,17 @@ sub stringify_ip {
     return $str;
 }
 
+sub lock_file {
+  return "/tmp/mon-elb-addr.".shift;
+}
+
 sub notify {
     my $diff = shift;
     my $dnsname = shift;
 
     my $lock = IPC::Lock::WithTTL->new(
-        file => "/tmp/mon-elb-addr.$dnsname",
-        ttl  => 1800,
+        file => lock_file($dnsname),
+        ttl  => $Interval,
     );
     my($r, $hb) = $lock->acquire;
     unless ($r) {
@@ -235,10 +274,11 @@ sub notify {
             }
         }
         my %payload = (
+            icon_emoji => ":elb:",
             text => $comment,
             attachments => [
                 {
-                    "title" => "IP address diff of $dnsname",
+                    "title" => "New hosts about $dnsname",
                     "text" => '```' . "\n" . $diff . '```',
                     "mrkdwn_in" => ["text"],
                 }

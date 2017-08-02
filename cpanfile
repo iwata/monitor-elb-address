@@ -11,4 +11,4 @@ requires 'Furl';
 requires 'String::IRC';
 requires 'IPC::Lock::WithTTL';
 requires 'JSON';
-
+requires 'IO::Socket::SSL';

@@ -1,18 +1,14 @@
 +{
     # aws elb describe-load-balancers | jq '.LoadBalancerDescriptions[].DNSName' | awk '{print $0 ","}' | sort
-    dnsname => [
-        'XXX.us-west-1.elb.amazonaws.com',
-        'YYY.us-west-1.elb.amazonaws.com',
-    ],
+    dnsname => {
+      'xxx.ap-northeast-1.compute.amazonaws.com' => ['example.com'],
+      'yyy.ap-northeast-1.compute.amazonaws.com' => ['api.example.com'],
+    },
     notify => {
-        ikachan => {
-            url     => 'http://127.0.0.1:4979',
-            channel => '#fixme',
-        },
         slack => {
-            webhook_url => 'https://hooks.slack.com/services/xxx/yyy/zzz',
+            webhook_url => 'https://hooks.slack.com/services/XXXXX/YYYYY/WWWWWW',
             # channel => '#foo',
-            # username => 'slackbot',
+            # username => 'ELB IP watcher',
         }
     },
 };
