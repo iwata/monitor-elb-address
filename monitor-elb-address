@@ -24,13 +24,10 @@ BEGIN {
 }
 
 local $SIG{TERM} = $SIG{INT} = sub {
-  my @dnsname = keys %{ config()->{dnsname} };
-  for my $dnsname (@dnsname) {
-    my $lock_file = lock_file($dnsname);
-    if (-e $lock_file) {
-      debugf("remove lock file: %s", $lock_file);
-      unlink $lock_file;
-    }
+  my $lock_file = lock_file();
+  if (-e $lock_file) {
+    debugf("remove lock file: %s", $lock_file);
+    unlink $lock_file;
   }
   exit 0;
 };
@@ -147,6 +144,7 @@ MAIN: {
             p \%cur_ip;
         }
 
+        my %diff_host;
         for my $dnsname (sort keys %prev_ip) {
             my @hosts = @{ $dnsname{$dnsname} };
             my $prev_str = stringify_ip(+( $dnsname => $prev_ip{$dnsname}));
@@ -157,12 +155,14 @@ MAIN: {
             if ($diff) {
                 infof("changed   [%s]", $dnsname);
                 print $diff;
-                notify(stringify_hosts(+(
-                  $dnsname => {ip => $cur_ip{$dnsname}, hosts => \@hosts}
-                )), $dnsname);
+                $diff_host{$dnsname} = {ip => $cur_ip{$dnsname}, hosts => \@hosts};
             } else {
                 infof("no change [%s]", $dnsname);
             }
+        }
+
+        if (scalar(keys %diff_host)) {
+          notify(stringify_hosts(%diff_host));
         }
 
         %prev_ip = %cur_ip;
@@ -177,9 +177,10 @@ MAIN: {
 sub stringify_hosts {
     return "" unless @_;
     my %args = @_;
-    my $str;
+    my @res;
 
     for my $dnsname (sort keys %args) {
+        my $str;
         my %buf = %{ $args{$dnsname} };
         my @ip = @{ $buf{ip} };
         my @hosts = @{ $buf{hosts} };
@@ -188,14 +189,15 @@ sub stringify_hosts {
         for my $ip (sort @ip) {
           my @buf;
           for my $host (sort @hosts) {
-            push(@buf,  "$ip   $host");
+            push(@buf,  "$ip   $host\n");
           }
-          push(@each_ip, join("\n", @buf));
+          push(@each_ip, join("", @buf));
         }
-        $str .= join("\n# or\n", @each_ip);
+        $str .= join("# or\n", @each_ip);
+        push(@res, $str);
     }
 
-    return $str;
+    return join("\n", @res);
 }
 
 sub stringify_ip {
@@ -214,15 +216,14 @@ sub stringify_ip {
 }
 
 sub lock_file {
-  return "/tmp/mon-elb-addr.".shift;
+  return "/tmp/mon-elb-addr.lock";
 }
 
 sub notify {
     my $diff = shift;
-    my $dnsname = shift;
 
     my $lock = IPC::Lock::WithTTL->new(
-        file => lock_file($dnsname),
+        file => lock_file(),
         ttl  => $Interval,
     );
     my($r, $hb) = $lock->acquire;
@@ -284,7 +285,7 @@ sub notify {
             link_names => 1,
             attachments => [
                 {
-                    "title" => "New hosts about $dnsname",
+                    "title" => "New hosts",
                     "text" => '```' . "\n" . $diff . '```',
                     "mrkdwn_in" => ["text"],
                 }
